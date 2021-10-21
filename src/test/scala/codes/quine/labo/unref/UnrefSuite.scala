@@ -9,7 +9,9 @@ class UnrefSuite extends munit.FunSuite {
 
   test("unref.apply") {
     assertUnref("""x""", "x")
+    assertUnref("""\b""", "\\b")
     assertUnref("""(x)\1""", "xx")
+    assertUnref("""(x\b )\1""", "x\\b x ")
     assertUnref("""(x)(0)\1\2""", "x0x0")
     assertUnref("""\1(x)""", "x")
     assertUnref("""(x|y)\1""", "xx|yy")

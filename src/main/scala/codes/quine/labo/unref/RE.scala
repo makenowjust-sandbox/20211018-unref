@@ -8,6 +8,15 @@ object RE {
     override def toString: String = Util.escape(c)
   }
 
+  final case class Assert(k: AssertKind) extends RE {
+    override def toString: String = k match {
+      case AssertKind.InputBegin      => "^"
+      case AssertKind.InputEnd        => "$"
+      case AssertKind.WordBoundary    => "\\b"
+      case AssertKind.NotWordBoundary => "\\B"
+    }
+  }
+
   final case class Cat(rs: RE*) extends RE {
     override def toString: String = {
       val ss = rs.map {

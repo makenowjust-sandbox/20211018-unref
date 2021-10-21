@@ -5,6 +5,7 @@ sealed abstract class BRE
 
 object BRE {
   final case class Lit(c: Char) extends BRE
+  final case class Assert(k: AssertKind) extends BRE
   final case class Cat(bs: BRE*) extends BRE
   final case class Alt(bs: BRE*) extends BRE
   final case class Star(b: BRE) extends BRE
@@ -14,6 +15,7 @@ object BRE {
   /** Returns a set of capture index numbers in the given regular expression. */
   def caps(b: BRE): Set[Int] = b match {
     case Lit(_)       => Set.empty
+    case Assert(_)    => Set.empty
     case Cat(bs @ _*) => bs.iterator.flatMap(caps).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(caps).toSet
     case Star(b)      => caps(b)
@@ -25,6 +27,7 @@ object BRE {
     */
   def refs(b: BRE): Set[Int] = b match {
     case Lit(_)       => Set.empty
+    case Assert(_)    => Set.empty
     case Cat(bs @ _*) => bs.iterator.flatMap(refs).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(refs).toSet
     case Star(b)      => refs(b)
@@ -34,7 +37,7 @@ object BRE {
 
   /** Parses the given string as BRE. */
   def parse(s: String): Option[BRE] = {
-    val reserved = "|*()\\"
+    val reserved = "|*()\\^$"
 
     def alt(pos0: Int, index0: Int): Option[(Int, Int, BRE)] = {
       var pos = pos0
@@ -110,8 +113,12 @@ object BRE {
         if (pos0 + 1 < s.length && s(pos0 + 1).isDigit) {
           val n = s.drop(pos0 + 1).takeWhile(_.isDigit)
           Some((pos0 + 1 + n.length, Ref(n.toInt)))
-        } else if (pos0 + 1 < s.length) Some((pos0 + 2, Lit(s(pos0 + 1))))
+        } else if (pos0 + 1 < s.length && s(pos0 + 1) == 'b') Some((pos0 + 2, Assert(AssertKind.WordBoundary)))
+        else if (pos0 + 1 < s.length && s(pos0 + 1) == 'B') Some((pos0 + 2, Assert(AssertKind.NotWordBoundary)))
+        else if (pos0 + 1 < s.length) Some((pos0 + 2, Lit(s(pos0 + 1))))
         else None
+      else if (pos0 < s.length && s(pos0) == '^') Some((pos0 + 1, Assert(AssertKind.InputBegin)))
+      else if (pos0 < s.length && s(pos0) == '$') Some((pos0 + 1, Assert(AssertKind.InputEnd)))
       else if (pos0 < s.length && !reserved.contains(s(pos0))) Some((pos0 + 1, Lit(s(pos0))))
       else None
 

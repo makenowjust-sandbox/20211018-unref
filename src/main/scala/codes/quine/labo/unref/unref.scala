@@ -13,6 +13,9 @@ object unref extends (BRE => RE) {
     final case class Lit(c: Char) extends C {
       override def toString: String = s"C.Lit('$c')"
     }
+    final case class Assert(k: AssertKind) extends C {
+      override def toString: String = s"C.Assert($k)"
+    }
     final case class Cap(i: Int, w: W) extends C {
       override def toString: String = s"C.Cap($i, $w)"
     }
@@ -23,6 +26,7 @@ object unref extends (BRE => RE) {
     /** Returns a set of capture index numbers in the given capture character. */
     def caps(c: C): Set[Int] = c match {
       case Lit(_)    => Set.empty
+      case Assert(_) => Set.empty
       case Cap(i, w) => Set(i) | W.caps(w)
       case Ref(_)    => Set.empty
     }
@@ -30,6 +34,7 @@ object unref extends (BRE => RE) {
     /** Returns a set of back-reference index numbers in the given capture character. */
     def refs(c: C): Set[Int] = c match {
       case Lit(_)    => Set.empty
+      case Assert(_) => Set.empty
       case Cap(_, w) => W.caps(w)
       case Ref(i)    => Set(i)
     }
@@ -122,6 +127,9 @@ object unref extends (BRE => RE) {
     final case class Lit(c: Char) extends N {
       override def toString: String = s"N.Lit('$c')"
     }
+    final case class Assert(k: AssertKind) extends N {
+      override def toString: String = s"N.Assert($k)"
+    }
     final case class Cat(ns: N*) extends N {
       override def toString: String = ns.mkString("N.Cat(", ", ", ")")
     }
@@ -138,6 +146,7 @@ object unref extends (BRE => RE) {
     /** Returns a set of back-reference index numbers in the given N. */
     def refs(n: N): Set[Int] = n match {
       case Lit(_)       => Set.empty
+      case Assert(_)    => Set.empty
       case Cat(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Alt(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Star(s)      => S.refs(s)
@@ -164,6 +173,7 @@ object unref extends (BRE => RE) {
     /** Converts this into N. */
     def toN: N = this match {
       case P.Lit(c)       => N.Lit(c)
+      case P.Assert(k)    => N.Assert(k)
       case P.Cat(ps @ _*) => N.Cat(ps.map(_.toN): _*)
       case P.Alt(ps @ _*) => N.Alt(ps.map(_.toN): _*)
       case P.Star(p)      => N.Star(S(Seq.empty, p))
@@ -172,6 +182,7 @@ object unref extends (BRE => RE) {
     /** Converts this into RE. */
     def toRE: RE = this match {
       case P.Lit(c)       => RE.Lit(c)
+      case P.Assert(k)    => RE.Assert(k)
       case P.Cat(ps @ _*) => RE.Cat(ps.map(_.toRE): _*)
       case P.Alt(ps @ _*) => RE.Alt(ps.map(_.toRE): _*)
       case P.Star(p)      => RE.Star(p.toRE)
@@ -181,6 +192,9 @@ object unref extends (BRE => RE) {
   object P {
     final case class Lit(c: Char) extends P {
       override def toString: String = s"P.Lit('$c')"
+    }
+    final case class Assert(k: AssertKind) extends P {
+      override def toString: String = s"P.Assert($k)"
     }
     final case class Cat(ps: P*) extends P {
       override def toString: String = ps.mkString("P.Cat(", ", ", ")")
@@ -257,7 +271,8 @@ object unref extends (BRE => RE) {
     * Note that the given BRE should have finite language. In other words, it must not contain a star.
     */
   def language(b: BRE): Seq[W] = b match {
-    case BRE.Lit(c) => Seq(W(C.Lit(c)))
+    case BRE.Lit(c)    => Seq(W(C.Lit(c)))
+    case BRE.Assert(k) => Seq(W(C.Assert(k)))
     case BRE.Cat(bs @ _*) =>
       bs.foldLeft(Seq(W()))((ws, b) => language(b).flatMap(w => ws.map(_ ++ w)))
     case BRE.Alt(bs @ _*) => bs.flatMap(language)
@@ -268,7 +283,8 @@ object unref extends (BRE => RE) {
 
   /** Converts the given BRE into a sequential form on the given continuations. */
   def convert(b: BRE, ks: Seq[BRE]): S = b match {
-    case BRE.Lit(c) => S(Seq.empty, P.Lit(c))
+    case BRE.Lit(c)    => S(Seq.empty, P.Lit(c))
+    case BRE.Assert(k) => S(Seq.empty, P.Assert(k))
     case BRE.Cat(bs @ _*) =>
       val ss = bs.zipWithIndex.map { case (b, i) =>
         convert(b, bs.drop(i + 1) ++ ks)
@@ -358,6 +374,7 @@ object unref extends (BRE => RE) {
   /** Returns a regular expression replaced back-references from the given N. */
   def exec(n: N, m: Map[Int, Seq[Char]]): P = n match {
     case N.Lit(c)       => P.Lit(c)
+    case N.Assert(k)    => P.Assert(k)
     case N.Cat(ns @ _*) => P.Cat(ns.map(exec(_, m)): _*)
     case N.Alt(ns @ _*) => P.Alt(ns.map(exec(_, m)): _*)
     case N.Star(s)      => P.Star(exec(s, m))
@@ -379,7 +396,8 @@ object unref extends (BRE => RE) {
   /** Returns a regular expression replaces back-references, the matche, and the updated matches. */
   def exec(c: C, m: Map[Int, Seq[Char]]): (P, Seq[Char], Map[Int, Seq[Char]]) =
     c match {
-      case C.Lit(c) => (P.Lit(c), Seq(c), m)
+      case C.Lit(c)    => (P.Lit(c), Seq(c), m)
+      case C.Assert(k) => (P.Assert(k), Seq.empty, m)
       case C.Cap(i, w) =>
         val (p, cs, m1) = exec(w, m)
         (p, cs, m1 ++ Map(i -> cs))
