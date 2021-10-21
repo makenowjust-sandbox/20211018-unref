@@ -19,6 +19,20 @@ object unref extends (BRE => RE) {
     final case class Ref(i: Int) extends C {
       override def toString: String = s"C.Ref($i)"
     }
+
+    /** Returns a set of capture index numbers in the given capture character. */
+    def caps(c: C): Set[Int] = c match {
+      case Lit(_)    => Set.empty
+      case Cap(i, w) => Set(i) | W.caps(w)
+      case Ref(_)    => Set.empty
+    }
+
+    /** Returns a set of back-reference index numbers in the given capture character. */
+    def refs(c: C): Set[Int] = c match {
+      case Lit(_)    => Set.empty
+      case Cap(_, w) => W.caps(w)
+      case Ref(i)    => Set(i)
+    }
   }
 
   /** W is a word of a capture. */
@@ -28,6 +42,15 @@ object unref extends (BRE => RE) {
     def ++(w: W): W = W(cs ++ w.cs: _*)
 
     override def toString: String = cs.mkString("W(", ", ", ")")
+  }
+
+  object W {
+
+    /** Returns a set of capture index numbers in the given capture word. */
+    def caps(w: W): Set[Int] = w.cs.iterator.flatMap(C.caps).toSet
+
+    /** Returns a set of back-reference index numbers in the given capture word. */
+    def refs(w: W): Set[Int] = w.cs.iterator.flatMap(C.refs).toSet
   }
 
   /** T is a regular expression having no capture ambiguity. */
@@ -54,6 +77,20 @@ object unref extends (BRE => RE) {
     }
     final case class Cap(i: Int, w: W) extends T {
       override def toString: String = s"T.Cap($i, $w)"
+    }
+
+    /** Returns a set of capture index numbers in the given T. */
+    def caps(t: T): Set[Int] = t match {
+      case Cat(ts @ _*) => ts.iterator.flatMap(caps).toSet
+      case NoCap(_)     => Set.empty
+      case Cap(i, w)    => Set(i) | W.caps(w)
+    }
+
+    /** Returns a set of back-reference index numbers in the given T. */
+    def refs(t: T): Set[Int] = t match {
+      case Cat(ts @ _*) => ts.iterator.flatMap(refs).toSet
+      case NoCap(n)     => N.refs(n)
+      case Cap(_, w)    => W.refs(w)
     }
   }
 
@@ -96,6 +133,15 @@ object unref extends (BRE => RE) {
     }
     final case class Ref(i: Int) extends N {
       override def toString: String = s"N.Ref($i)"
+    }
+
+    /** Returns a set of back-reference index numbers in the given N. */
+    def refs(n: N): Set[Int] = n match {
+      case Lit(_)       => Set.empty
+      case Cat(ns @ _*) => ns.iterator.flatMap(refs).toSet
+      case Alt(ns @ _*) => ns.iterator.flatMap(refs).toSet
+      case Star(s)      => S.refs(s)
+      case Ref(i)       => Set(i)
     }
   }
 
@@ -172,6 +218,12 @@ object unref extends (BRE => RE) {
       */
     def selects(as: Seq[A]): Seq[T] =
       as.foldLeft(Seq(T.Cat(): T))((ts, a) => a.ts.flatMap(t => ts.map(_ ++ t)))
+
+    /** Returns a set of capture index numbers in the given A. */
+    def caps(a: A): Set[Int] = a.ts.iterator.flatMap(T.caps).toSet
+
+    /** Returns a set of back-reference index numbers in the given A. */
+    def refs(a: A): Set[Int] = a.ts.iterator.flatMap(T.refs).toSet
   }
 
   /** S is a sequential form of regular expression. */
@@ -192,6 +244,12 @@ object unref extends (BRE => RE) {
     }
 
     override def toString: String = s"S(${as.mkString("Seq(", ", ", ")")}, $p)"
+  }
+
+  object S {
+
+    /** Returns a set of back-reference index numbers in the given S. */
+    def refs(s: S): Set[Int] = s.as.iterator.flatMap(A.refs).toSet
   }
 
   /** Returns a language (a word set) of the given BRE.
@@ -241,15 +299,42 @@ object unref extends (BRE => RE) {
 
   /** Returns a regular expression replaced back-references from the given S. */
   def exec(s: S, m: Map[Int, Seq[Char]]): P = {
-    val (as0, as) = s.as.span(_.ts.size == 1)
-    val (p0, m0) = exec(as0.map(_.ts.head), m)
+    // Extracts dependencies between captures and back-references. Finally, it creates the sequence
+    // named `intervals`. Each element of them is a pair of index numbers on `s.as`: the first value
+    // is an index capture is appeared, and the second is an index back-reference is appeared at last.
+    val caps = s.as.zipWithIndex.flatMap { case (a, i) =>
+      A.caps(a).map(_ -> i)
+    }.toMap
+    val refs = s.as.zipWithIndex.flatMap { case (a, i) =>
+      A.refs(a).map(_ -> i)
+    }.toMap
+    val intervals = caps.toSeq.flatMap { case i -> x => refs.get(i).map((x, _)) }.sorted
 
-    if (as.isEmpty) p0 ++ s.p
-    else {
-      val ts = A.selects(as)
-      val ps = ts.map(t => exec(t, m0)._1)
-      p0 ++ P.Alt(ps: _*) ++ s.p
+    // Collapses overlapped intervals.
+    val flatIntervals = intervals.foldLeft(Seq.empty[(Int, Int)]) {
+      case (Seq(), (y1, y2))                                    => Seq((y1, y2))
+      case (is :+ ((x1, x2)), (y1, y2)) if x1 <= y1 && y1 <= x2 => is :+ (x1, Math.max(x2, y2))
+      case (is, (y1, y2))                                       => is :+ (y1, y2)
     }
+
+    // Executes each collapsed intervals. Noting that intervals are independent on captures and back-references,
+    // we do not need to take care of matches between intervals.
+    val (_, p) = (flatIntervals.map(_._2 + 1) :+ s.as.size).foldLeft((0, P.Cat(): P)) { case ((x, p0), y) =>
+      val as = s.as.slice(x, x + y - x)
+      if (as.nonEmpty) {
+        val (as1, as2) = as.span(_.ts.size == 1)
+        val (p1, m1) = exec(as1.map(_.ts.head), m)
+
+        if (as2.isEmpty) (y, p0 ++ p1)
+        else {
+          val ts = A.selects(as2)
+          val ps = ts.map(t => exec(t, m1)._1)
+          (y, p0 ++ p1 ++ P.Alt(ps: _*))
+        }
+      } else (y, p0)
+    }
+
+    p ++ s.p
   }
 
   /** Records captures in the given sequence of T, and returns a regular expression replaced back-references and the
@@ -297,7 +382,7 @@ object unref extends (BRE => RE) {
       case C.Lit(c) => (P.Lit(c), Seq(c), m)
       case C.Cap(i, w) =>
         val (p, cs, m1) = exec(w, m)
-        (p, cs, m1)
+        (p, cs, m1 ++ Map(i -> cs))
       case C.Ref(i) =>
         val cs = m.getOrElse(i, Seq.empty)
         cs match {
