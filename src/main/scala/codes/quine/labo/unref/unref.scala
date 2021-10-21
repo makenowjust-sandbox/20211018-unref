@@ -217,7 +217,7 @@ object unref extends (BRE => RE) {
       * expressions concatenated with them.
       */
     def selects(as: Seq[A]): Seq[T] =
-      as.foldLeft(Seq(T.Cat(): T))((ts, a) => a.ts.flatMap(t => ts.map(_ ++ t)))
+      as.foldLeft(Seq(T.Cat(): T))((ts, a) => ts.flatMap(t => a.ts.map(t ++ _)))
 
     /** Returns a set of capture index numbers in the given A. */
     def caps(a: A): Set[Int] = a.ts.iterator.flatMap(T.caps).toSet

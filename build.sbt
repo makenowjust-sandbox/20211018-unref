@@ -16,7 +16,7 @@ ThisBuild / semanticdbVersion := scalafixSemanticdb.revision
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.5.0"
 ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.20"
 
-lazy val presburger = project
+lazy val unref = project
   .in(file("."))
   .settings(
     name := "unref",
