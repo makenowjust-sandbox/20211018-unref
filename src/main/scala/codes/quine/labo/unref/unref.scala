@@ -16,6 +16,15 @@ object unref extends (BRE => RE) {
     final case class Assert(k: AssertKind) extends C {
       override def toString: String = s"C.Assert($k)"
     }
+    final case class PosLA0(s: S) extends C {
+      override def toString: String = s"C.PosLA0($s)"
+    }
+    final case class PosLA1(t: T) extends C {
+      override def toString: String = s"C.PosLA1($t)"
+    }
+    final case class NegLA(s: S) extends C {
+      override def toString: String = s"C.NegLA($s)"
+    }
     final case class Cap(i: Int, w: W) extends C {
       override def toString: String = s"C.Cap($i, $w)"
     }
@@ -27,6 +36,9 @@ object unref extends (BRE => RE) {
     def caps(c: C): Set[Int] = c match {
       case Lit(_)    => Set.empty
       case Assert(_) => Set.empty
+      case PosLA0(_) => Set.empty
+      case PosLA1(t) => T.caps(t)
+      case NegLA(_)  => Set.empty
       case Cap(i, w) => Set(i) | W.caps(w)
       case Ref(_)    => Set.empty
     }
@@ -35,6 +47,9 @@ object unref extends (BRE => RE) {
     def refs(c: C): Set[Int] = c match {
       case Lit(_)    => Set.empty
       case Assert(_) => Set.empty
+      case PosLA0(s) => S.refs(s)
+      case PosLA1(t) => T.refs(t)
+      case NegLA(s)  => S.refs(s)
       case Cap(_, w) => W.caps(w)
       case Ref(i)    => Set(i)
     }
@@ -77,6 +92,9 @@ object unref extends (BRE => RE) {
     final case class Cat(ts: T*) extends T {
       override def toString: String = ts.mkString("T.Cat(", ", ", ")")
     }
+    final case class PosLA(t: T) extends T {
+      override def toString: String = s"T.PosLA($t)"
+    }
     final case class NoCap(n: N) extends T {
       override def toString: String = s"T.NoCap($n)"
     }
@@ -87,6 +105,7 @@ object unref extends (BRE => RE) {
     /** Returns a set of capture index numbers in the given T. */
     def caps(t: T): Set[Int] = t match {
       case Cat(ts @ _*) => ts.iterator.flatMap(caps).toSet
+      case PosLA(t)     => caps(t)
       case NoCap(_)     => Set.empty
       case Cap(i, w)    => Set(i) | W.caps(w)
     }
@@ -94,6 +113,7 @@ object unref extends (BRE => RE) {
     /** Returns a set of back-reference index numbers in the given T. */
     def refs(t: T): Set[Int] = t match {
       case Cat(ts @ _*) => ts.iterator.flatMap(refs).toSet
+      case PosLA(t)     => refs(t)
       case NoCap(n)     => N.refs(n)
       case Cap(_, w)    => W.refs(w)
     }
@@ -130,6 +150,12 @@ object unref extends (BRE => RE) {
     final case class Assert(k: AssertKind) extends N {
       override def toString: String = s"N.Assert($k)"
     }
+    final case class PosLA(s: S) extends N {
+      override def toString: String = s"N.PosLA($s)"
+    }
+    final case class NegLA(s: S) extends N {
+      override def toString: String = s"N.NegLA($s)"
+    }
     final case class Cat(ns: N*) extends N {
       override def toString: String = ns.mkString("N.Cat(", ", ", ")")
     }
@@ -147,6 +173,8 @@ object unref extends (BRE => RE) {
     def refs(n: N): Set[Int] = n match {
       case Lit(_)       => Set.empty
       case Assert(_)    => Set.empty
+      case PosLA(s)     => S.refs(s)
+      case NegLA(s)     => S.refs(s)
       case Cat(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Alt(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Star(s)      => S.refs(s)
@@ -174,6 +202,8 @@ object unref extends (BRE => RE) {
     def toN: N = this match {
       case P.Lit(c)       => N.Lit(c)
       case P.Assert(k)    => N.Assert(k)
+      case P.PosLA(p)     => N.PosLA(S(Seq.empty, p))
+      case P.NegLA(p)     => N.NegLA(S(Seq.empty, p))
       case P.Cat(ps @ _*) => N.Cat(ps.map(_.toN): _*)
       case P.Alt(ps @ _*) => N.Alt(ps.map(_.toN): _*)
       case P.Star(p)      => N.Star(S(Seq.empty, p))
@@ -183,6 +213,8 @@ object unref extends (BRE => RE) {
     def toRE: RE = this match {
       case P.Lit(c)       => RE.Lit(c)
       case P.Assert(k)    => RE.Assert(k)
+      case P.PosLA(p)     => RE.PosLA(p.toRE)
+      case P.NegLA(p)     => RE.NegLA(p.toRE)
       case P.Cat(ps @ _*) => RE.Cat(ps.map(_.toRE): _*)
       case P.Alt(ps @ _*) => RE.Alt(ps.map(_.toRE): _*)
       case P.Star(p)      => RE.Star(p.toRE)
@@ -195,6 +227,12 @@ object unref extends (BRE => RE) {
     }
     final case class Assert(k: AssertKind) extends P {
       override def toString: String = s"P.Assert($k)"
+    }
+    final case class PosLA(p: P) extends P {
+      override def toString: String = s"P.PosLA($p)"
+    }
+    final case class NegLA(p: P) extends P {
+      override def toString: String = s"P.NegLA($p)"
     }
     final case class Cat(ps: P*) extends P {
       override def toString: String = ps.mkString("P.Cat(", ", ", ")")
@@ -266,25 +304,54 @@ object unref extends (BRE => RE) {
     def refs(s: S): Set[Int] = s.as.iterator.flatMap(A.refs).toSet
   }
 
-  /** Returns a language (a word set) of the given BRE.
+  /** Returns a language (a word set) of the given BRE on the given continuations.
     *
     * Note that the given BRE should have finite language. In other words, it must not contain a star.
     */
-  def language(b: BRE): Seq[W] = b match {
+  def language(b: BRE, ks: Seq[BRE]): Seq[W] = b match {
     case BRE.Lit(c)    => Seq(W(C.Lit(c)))
     case BRE.Assert(k) => Seq(W(C.Assert(k)))
+    case BRE.PosLA(b) =>
+      val krefs = ks.iterator.flatMap(BRE.refs).toSet
+      val bcaps = BRE.caps(b)
+      val s = convert(b, ks)
+      if ((krefs & bcaps).nonEmpty) s.toA.ts.map(t => W(C.PosLA1(t)))
+      else Seq(W(C.PosLA0(s)))
+    case BRE.NegLA(b) => Seq(W(C.NegLA(convert(b, ks))))
     case BRE.Cat(bs @ _*) =>
-      bs.foldLeft(Seq(W()))((ws, b) => language(b).flatMap(w => ws.map(_ ++ w)))
-    case BRE.Alt(bs @ _*) => bs.flatMap(language)
+      bs.zipWithIndex.foldLeft(Seq(W())) { case (ws, (b, i)) =>
+        language(b, ks ++ bs.drop(i + 1)).flatMap(w => ws.map(_ ++ w))
+      }
+    case BRE.Alt(bs @ _*) => bs.flatMap(language(_, ks))
     case BRE.Star(_)      => throw new IllegalArgumentException
-    case BRE.Cap(i, b)    => language(b).map(w => W(C.Cap(i, w)))
-    case BRE.Ref(i)       => Seq(W(C.Ref(i)))
+    case BRE.Cap(i, b) =>
+      val krefs = ks.iterator.flatMap(BRE.refs).toSet
+      val ws = language(b, ks)
+      if (krefs.contains(i)) ws.map(w => W(C.Cap(i, w)))
+      else ws
+    case BRE.Ref(i) => Seq(W(C.Ref(i)))
   }
 
   /** Converts the given BRE into a sequential form on the given continuations. */
   def convert(b: BRE, ks: Seq[BRE]): S = b match {
     case BRE.Lit(c)    => S(Seq.empty, P.Lit(c))
     case BRE.Assert(k) => S(Seq.empty, P.Assert(k))
+    case BRE.PosLA(b) =>
+      val krefs = ks.iterator.flatMap(BRE.refs).toSet
+      val bcaps = BRE.caps(b)
+      val s = convert(b, ks)
+      if ((krefs & bcaps).nonEmpty) {
+        val a = s.toA
+        S(Seq(A(a.ts.map(t => T.PosLA(t)): _*)), P.Cat())
+      } else {
+        if (s.isPure) S(Seq.empty, P.PosLA(s.p))
+        else S(Seq(A(T.NoCap(N.PosLA(s)))), P.Cat())
+      }
+    case BRE.NegLA(b) =>
+      // Captures in negative look-ahead are ignored, thus the continuations should be empty here.
+      val s = convert(b, Seq.empty)
+      if (s.isPure) S(Seq.empty, P.NegLA(s.p))
+      else S(Seq(A(T.NoCap(N.NegLA(s)))), P.Cat())
     case BRE.Cat(bs @ _*) =>
       val ss = bs.zipWithIndex.map { case (b, i) =>
         convert(b, bs.drop(i + 1) ++ ks)
@@ -299,6 +366,7 @@ object unref extends (BRE => RE) {
       val bcaps = BRE.caps(b)
       val s = convert(b, ks)
       if ((krefs & bcaps).nonEmpty) {
+        // TODO: needs to check emptiness because empty strings cannot be matched in loops.
         val a = A(s.toA.ts.map(t => T.NoCap(N.Star(s)) ++ t) :+ T.Cat(): _*)
         S(Seq(a), P.Cat())
       } else {
@@ -308,7 +376,7 @@ object unref extends (BRE => RE) {
     case BRE.Cap(i, b) =>
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       if (krefs.contains(i))
-        S(Seq(A(language(b).map(T.Cap(i, _)): _*)), P.Cat())
+        S(Seq(A(language(b, ks).map(T.Cap(i, _)): _*)), P.Cat())
       else convert(b, ks)
     case BRE.Ref(i) => S(Seq(A(T.NoCap(N.Ref(i)))), P.Cat())
   }
@@ -365,7 +433,10 @@ object unref extends (BRE => RE) {
   /** Records captures in the given T, and returns a regular expression replaced back-references and the matches. */
   def exec(t: T, m: Map[Int, Seq[Char]]): (P, Map[Int, Seq[Char]]) = t match {
     case T.Cat(ts @ _*) => exec(ts, m)
-    case T.NoCap(n)     => (exec(n, m), m)
+    case T.PosLA(t) =>
+      val (p, m1) = exec(t, m)
+      (P.PosLA(p), m1)
+    case T.NoCap(n) => (exec(n, m), m)
     case T.Cap(i, w) =>
       val (p, cs, m1) = exec(w, m)
       (p, m1 ++ Map(i -> cs))
@@ -375,6 +446,8 @@ object unref extends (BRE => RE) {
   def exec(n: N, m: Map[Int, Seq[Char]]): P = n match {
     case N.Lit(c)       => P.Lit(c)
     case N.Assert(k)    => P.Assert(k)
+    case N.PosLA(s)     => P.PosLA(exec(s, m))
+    case N.NegLA(s)     => P.NegLA(exec(s, m))
     case N.Cat(ns @ _*) => P.Cat(ns.map(exec(_, m)): _*)
     case N.Alt(ns @ _*) => P.Alt(ns.map(exec(_, m)): _*)
     case N.Star(s)      => P.Star(exec(s, m))
@@ -398,6 +471,11 @@ object unref extends (BRE => RE) {
     c match {
       case C.Lit(c)    => (P.Lit(c), Seq(c), m)
       case C.Assert(k) => (P.Assert(k), Seq.empty, m)
+      case C.PosLA0(s) => (P.PosLA(exec(s, m)), Seq.empty, m)
+      case C.PosLA1(t) =>
+        val (p, m1) = exec(t, m)
+        (P.PosLA(p), Seq.empty, m1)
+      case C.NegLA(s) => (P.NegLA(exec(s, m)), Seq.empty, m)
       case C.Cap(i, w) =>
         val (p, cs, m1) = exec(w, m)
         (p, cs, m1 ++ Map(i -> cs))

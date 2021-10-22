@@ -16,6 +16,10 @@ class BRESuite extends munit.FunSuite {
     assertEquals(BRE.parse("x*"), Some(BRE.Star(BRE.Lit('x'))))
     assertEquals(BRE.parse("(?:xy)"), Some(BRE.Cat(BRE.Lit('x'), BRE.Lit('y'))))
     assertEquals(BRE.parse("(?:"), None)
+    assertEquals(BRE.parse("(?=xy)"), Some(BRE.PosLA(BRE.Cat(BRE.Lit('x'), BRE.Lit('y')))))
+    assertEquals(BRE.parse("(?="), None)
+    assertEquals(BRE.parse("(?!xy)"), Some(BRE.NegLA(BRE.Cat(BRE.Lit('x'), BRE.Lit('y')))))
+    assertEquals(BRE.parse("(?!"), None)
     assertEquals(BRE.parse("(xy)"), Some(BRE.Cap(1, BRE.Cat(BRE.Lit('x'), BRE.Lit('y')))))
     assertEquals(BRE.parse("("), None)
   }

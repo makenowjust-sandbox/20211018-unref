@@ -38,6 +38,14 @@ object RE {
     }
   }
 
+  final case class PosLA(r: RE) extends RE {
+    override def toString: String = s"(?=$r)"
+  }
+
+  final case class NegLA(r: RE) extends RE {
+    override def toString: String = s"(?!$r)"
+  }
+
   final case class Star(r: RE) extends RE {
     override def toString: String =
       r match {

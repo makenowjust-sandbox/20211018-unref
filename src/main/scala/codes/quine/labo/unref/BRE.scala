@@ -9,6 +9,8 @@ object BRE {
   final case class Cat(bs: BRE*) extends BRE
   final case class Alt(bs: BRE*) extends BRE
   final case class Star(b: BRE) extends BRE
+  final case class PosLA(b: BRE) extends BRE
+  final case class NegLA(b: BRE) extends BRE
   final case class Cap(i: Int, b: BRE) extends BRE
   final case class Ref(i: Int) extends BRE
 
@@ -19,6 +21,8 @@ object BRE {
     case Cat(bs @ _*) => bs.iterator.flatMap(caps).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(caps).toSet
     case Star(b)      => caps(b)
+    case PosLA(b)     => caps(b)
+    case NegLA(_)     => Set.empty // Because captures in negative look-ahead are never captured.
     case Cap(i, b)    => Set(i) | caps(b)
     case Ref(_)       => Set.empty
   }
@@ -31,6 +35,8 @@ object BRE {
     case Cat(bs @ _*) => bs.iterator.flatMap(refs).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(refs).toSet
     case Star(b)      => refs(b)
+    case PosLA(b)     => refs(b)
+    case NegLA(b)     => refs(b)
     case Cap(_, b)    => refs(b)
     case Ref(i)       => Set(i)
   }
@@ -99,6 +105,16 @@ object BRE {
       if (s.startsWith("(?:", pos0))
         alt(pos0 + 3, index0).flatMap { case (pos1, index1, b) =>
           if (pos1 < s.length && s(pos1) == ')') Some((pos1 + 1, index1, b))
+          else None
+        }
+      else if (s.startsWith("(?=", pos0))
+        alt(pos0 + 3, index0).flatMap { case (pos1, index1, b) =>
+          if (pos1 < s.length && s(pos1) == ')') Some((pos1 + 1, index1, PosLA(b)))
+          else None
+        }
+      else if (s.startsWith("(?!", pos0))
+        alt(pos0 + 3, index0).flatMap { case (pos1, index1, b) =>
+          if (pos1 < s.length && s(pos1) == ')') Some((pos1 + 1, index1, NegLA(b)))
           else None
         }
       else if (pos0 < s.length && s(pos0) == '(')
