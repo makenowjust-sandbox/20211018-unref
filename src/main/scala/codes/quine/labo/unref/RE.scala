@@ -29,13 +29,15 @@ object RE {
   }
 
   final case class Alt(rs: RE*) extends RE {
-    override def toString: String = {
-      val ss = rs.map {
-        case r: Alt => s"(?:$r)"
-        case r      => r.toString
+    override def toString: String =
+      if (rs.isEmpty) "(?!)"
+      else {
+        val ss = rs.map {
+          case r: Alt if r.rs.size >= 2 => s"(?:$r)"
+          case r                        => r.toString
+        }
+        ss.mkString("|")
       }
-      ss.mkString("|")
-    }
   }
 
   final case class PosLA(r: RE) extends RE {

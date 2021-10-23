@@ -95,6 +95,9 @@ object unref extends (BRE => RE) {
     final case class PosLA(t: T) extends T {
       override def toString: String = s"T.PosLA($t)"
     }
+    final case class NonEmpty(t: T) extends T {
+      override def toString: String = s"T.NonEmpty($t)"
+    }
     final case class NoCap(n: N) extends T {
       override def toString: String = s"T.NoCap($n)"
     }
@@ -106,6 +109,7 @@ object unref extends (BRE => RE) {
     def caps(t: T): Set[Int] = t match {
       case Cat(ts @ _*) => ts.iterator.flatMap(caps).toSet
       case PosLA(t)     => caps(t)
+      case NonEmpty(t)  => caps(t)
       case NoCap(_)     => Set.empty
       case Cap(i, w)    => Set(i) | W.caps(w)
     }
@@ -114,6 +118,7 @@ object unref extends (BRE => RE) {
     def refs(t: T): Set[Int] = t match {
       case Cat(ts @ _*) => ts.iterator.flatMap(refs).toSet
       case PosLA(t)     => refs(t)
+      case NonEmpty(t)  => refs(t)
       case NoCap(n)     => N.refs(n)
       case Cap(_, w)    => W.refs(w)
     }
@@ -188,14 +193,26 @@ object unref extends (BRE => RE) {
     */
   sealed abstract class P {
 
-    /** Concatenates with two pure regular expressions into sequential one. */
+    /** Concatenates with two pure regular expressions into one. */
     def ++(that: P): P = (this, that) match {
+      case (P.Alt(), _)                       => P.Alt()
+      case (_, P.Alt())                       => P.Alt()
       case (P.Cat(), p)                       => p
       case (p, P.Cat())                       => p
       case (P.Cat(ps1 @ _*), P.Cat(ps2 @ _*)) => P.Cat(ps1 ++ ps2: _*)
       case (P.Cat(ps @ _*), p)                => P.Cat(ps :+ p: _*)
       case (p, P.Cat(ps @ _*))                => P.Cat(p +: ps: _*)
       case (p1, p2)                           => P.Cat(p1, p2)
+    }
+
+    /** Combines with two pure regular expressions into one. */
+    def |(that: P): P = (this, that) match {
+      case (P.Alt(), p)                       => p
+      case (p, P.Alt())                       => p
+      case (P.Alt(ps1 @ _*), P.Alt(ps2 @ _*)) => P.Alt(ps1 ++ ps2: _*)
+      case (P.Alt(ps @ _*), p)                => P.Alt(ps :+ p: _*)
+      case (p, P.Alt(ps @ _*))                => P.Alt(p +: ps: _*)
+      case (p1, p2)                           => P.Alt(p1, p2)
     }
 
     /** Converts this into N. */
@@ -304,6 +321,67 @@ object unref extends (BRE => RE) {
     def refs(s: S): Set[Int] = s.as.iterator.flatMap(A.refs).toSet
   }
 
+  /** E is a wrapper for P with emptiness information. */
+  sealed abstract class E
+
+  object E {
+    final case class Empty(p: P) extends E {
+      override def toString: String = s"E.Empty($p)"
+    }
+    final case class NonEmpty(p: P) extends E {
+      override def toString: String = s"E.NonEmpty($p)"
+    }
+
+    /** Combines two alternatives of E into one. */
+    def alt(es1: Seq[E], es2: Seq[E]): Seq[E] =
+      (es1.lastOption, es2.headOption) match {
+        case (Some(Empty(p1)), Some(Empty(p2))) =>
+          es1.init ++ Seq(Empty(p1 | p2)) ++ es2.tail
+        case (Some(NonEmpty(p1)), Some(NonEmpty(p2))) =>
+          es1.init ++ Seq(NonEmpty(p1 | p2)) ++ es2.tail
+        case (_, _) => es1 ++ es2
+      }
+
+    /** Concatenates two alternatives of E into one. */
+    def cat(es1: Seq[E], es2: Seq[E]): Seq[E] = {
+      val es = for {
+        e1 <- es1
+        e2 <- es2
+      } yield (e1, e2) match {
+        case (Empty(p1), Empty(p2))       => Empty(p1 ++ p2)
+        case (Empty(p1), NonEmpty(p2))    => NonEmpty(p1 ++ p2)
+        case (NonEmpty(p1), Empty(p2))    => NonEmpty(p1 ++ p2)
+        case (NonEmpty(p1), NonEmpty(p2)) => NonEmpty(p1 ++ p2)
+      }
+      es.foldLeft(Seq.empty[E]) {
+        case (Seq(), e)                         => Seq(e)
+        case (es :+ Empty(p1), Empty(p2))       => es :+ Empty(p1 | p2)
+        case (es :+ NonEmpty(p1), NonEmpty(p2)) => es :+ NonEmpty(p1 | p2)
+        case (es, e)                            => es :+ e
+      }
+    }
+
+    /** Returns a sequence of regular expressions separating empty and non-empty parts. */
+    def separate(p: P): Seq[E] = p match {
+      case P.Lit(c)    => Seq(NonEmpty(P.Lit(c)))
+      case P.Assert(k) => Seq(Empty(P.Assert(k)))
+      case P.PosLA(p)  => Seq(Empty(P.PosLA(p)))
+      case P.NegLA(p)  => Seq(Empty(P.NegLA(p)))
+      case P.Cat(ps @ _*) =>
+        ps.foldLeft(Seq(Empty(P.Cat()): E))((es, p) => cat(es, separate(p)))
+      case P.Alt(ps @ _*) =>
+        ps.foldLeft(Seq.empty[E])((es, p) => alt(es, separate(p)))
+      case P.Star(p) =>
+        val es = separate(p)
+        val ps = es.collect { case NonEmpty(p1) => P.Star(p) ++ p1 }
+        ps match {
+          case Seq()  => Seq(Empty(P.Cat()))
+          case Seq(p) => Seq(NonEmpty(p), Empty(P.Cat()))
+          case ps     => Seq(NonEmpty(P.Alt(ps: _*)), Empty(P.Cat()))
+        }
+    }
+  }
+
   /** Returns a language (a word set) of the given BRE on the given continuations.
     *
     * Note that the given BRE should have finite language. In other words, it must not contain a star.
@@ -320,7 +398,8 @@ object unref extends (BRE => RE) {
     case BRE.NegLA(b) => Seq(W(C.NegLA(convert(b, ks))))
     case BRE.Cat(bs @ _*) =>
       bs.zipWithIndex.foldLeft(Seq(W())) { case (ws, (b, i)) =>
-        language(b, ks ++ bs.drop(i + 1)).flatMap(w => ws.map(_ ++ w))
+        val ws1 = language(b, ks ++ bs.drop(i + 1))
+        ws.flatMap(w => ws1.map(w ++ _))
       }
     case BRE.Alt(bs @ _*) => bs.flatMap(language(_, ks))
     case BRE.Star(_)      => throw new IllegalArgumentException
@@ -348,7 +427,7 @@ object unref extends (BRE => RE) {
         else S(Seq(A(T.NoCap(N.PosLA(s)))), P.Cat())
       }
     case BRE.NegLA(b) =>
-      // Captures in negative look-ahead are ignored, thus the continuations should be empty here.
+      // Captures in negative look-ahead are discarded, thus the continuations should be empty here.
       val s = convert(b, Seq.empty)
       if (s.isPure) S(Seq.empty, P.NegLA(s.p))
       else S(Seq(A(T.NoCap(N.NegLA(s)))), P.Cat())
@@ -366,8 +445,7 @@ object unref extends (BRE => RE) {
       val bcaps = BRE.caps(b)
       val s = convert(b, ks)
       if ((krefs & bcaps).nonEmpty) {
-        // TODO: needs to check emptiness because empty strings cannot be matched in loops.
-        val a = A(s.toA.ts.map(t => T.NoCap(N.Star(s)) ++ t) :+ T.Cat(): _*)
+        val a = A(s.toA.ts.map(t => T.NoCap(N.Star(s)) ++ T.NonEmpty(t)) :+ T.Cat(): _*)
         S(Seq(a), P.Cat())
       } else {
         if (s.isPure) S(Seq.empty, P.Star(s.p))
@@ -412,7 +490,10 @@ object unref extends (BRE => RE) {
         if (as2.isEmpty) (y, p0 ++ p1)
         else {
           val ts = A.selects(as2)
-          val ps = ts.map(t => exec(t, m1)._1)
+          val ps = ts.map(t => exec(t, m1)._1).flatMap {
+            case P.Alt(ps @ _*) => ps
+            case p              => Seq(p)
+          }
           (y, p0 ++ p1 ++ P.Alt(ps: _*))
         }
       } else (y, p0)
@@ -436,6 +517,13 @@ object unref extends (BRE => RE) {
     case T.PosLA(t) =>
       val (p, m1) = exec(t, m)
       (P.PosLA(p), m1)
+    case T.NonEmpty(t) =>
+      val (p, m1) = exec(t, m)
+      val ps = E.separate(p).collect { case E.NonEmpty(p) => p }
+      ps match {
+        case Seq(p) => (p, m1)
+        case ps     => (P.Alt(ps: _*), m1)
+      }
     case T.NoCap(n) => (exec(n, m), m)
     case T.Cap(i, w) =>
       val (p, cs, m1) = exec(w, m)
