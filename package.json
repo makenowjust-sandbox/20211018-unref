@@ -2,7 +2,7 @@
   "private": true,
   "name": "unref",
   "scripts": {
-    "build": "parcel build ./index.html",
+    "build": "parcel build ./index.html --public-url=/20211018-unref/",
     "dev": "parcel ./index.html"
   },
   "devDependencies": {
