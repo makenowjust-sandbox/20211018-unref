@@ -1,6 +1,6 @@
 package codes.quine.labo.unref
 
-class BRESuite extends munit.FunSuite {
+class BRESuite extends munit.FunSuite:
   test("BRE.parse") {
     assertEquals(BRE.parse(""), Some(BRE.Cat()))
     assertEquals(BRE.parse("x"), Some(BRE.Lit('x')))
@@ -23,4 +23,3 @@ class BRESuite extends munit.FunSuite {
     assertEquals(BRE.parse("(xy)"), Some(BRE.Cap(1, BRE.Cat(BRE.Lit('x'), BRE.Lit('y')))))
     assertEquals(BRE.parse("("), None)
   }
-}

@@ -27,6 +27,6 @@ lazy val unref = project
     Test / console / scalacOptions -= "-Wunused",
     scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
     // Settings for test:
-    libraryDependencies += "org.scalameta" %% "munit" % "1.0.0-M1" % Test,
+    libraryDependencies += "org.scalameta" %%% "munit" % "1.0.0-M1" % Test,
     testFrameworks += new TestFramework("munit.Framework")
   )

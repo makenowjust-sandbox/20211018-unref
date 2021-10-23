@@ -1,6 +1,6 @@
 package codes.quine.labo.unref
 
-class UtilSuite extends munit.FunSuite {
+class UtilSuite extends munit.FunSuite:
   test("Util.escape") {
     assertEquals(Util.escape('x'), "x")
     assertEquals(Util.escape('|'), "\\|")
@@ -9,4 +9,3 @@ class UtilSuite extends munit.FunSuite {
     assertEquals(Util.escape(')'), "\\)")
     assertEquals(Util.escape('\\'), "\\\\")
   }
-}

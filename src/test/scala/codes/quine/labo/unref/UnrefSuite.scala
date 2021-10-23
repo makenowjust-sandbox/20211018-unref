@@ -1,11 +1,10 @@
 package codes.quine.labo.unref
 
-class UnrefSuite extends munit.FunSuite {
-  def assertUnref(input: String, expected: String)(implicit loc: munit.Location): Unit = {
+class UnrefSuite extends munit.FunSuite:
+  def assertUnref(input: String, expected: String)(implicit loc: munit.Location): Unit =
     val b = BRE.parse(input).getOrElse(throw new IllegalArgumentException(s"invalid BRE: /$input/"))
     val r = unref(b)
     assertEquals(r.toString, expected)
-  }
 
   test("unref.apply") {
     assertUnref("""x""", "x")
@@ -40,4 +39,3 @@ class UnrefSuite extends munit.FunSuite {
     assertUnref("""(x|(?=x))*\1""", "(?:x|(?=x))*xx|")
     assertUnref("""(x|)(\1)*\2""", "xx*xx|x|")
   }
-}

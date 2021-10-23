@@ -1,6 +1,6 @@
 package codes.quine.labo.unref
 
-class RESuite extends munit.FunSuite {
+class RESuite extends munit.FunSuite:
   test("RE#toString") {
     assertEquals(RE.Lit('x').toString, "x")
     assertEquals(RE.Lit('\\').toString, "\\\\")
@@ -22,4 +22,3 @@ class RESuite extends munit.FunSuite {
     assertEquals(RE.Star(RE.Alt(RE.Lit('x'), RE.Lit('y'))).toString, "(?:x|y)*")
     assertEquals(RE.Star(RE.Star(RE.Lit('x'))).toString, "(?:x*)*")
   }
-}
