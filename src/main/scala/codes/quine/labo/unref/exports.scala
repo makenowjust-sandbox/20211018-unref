@@ -2,8 +2,8 @@ package codes.quine.labo.unref
 
 import scala.scalajs.js.annotation.JSExportTopLevel
 
-/** export is a scope object to expose functions to JS. */
-object export {
+/** exports is a scope object to expose functions to JS. */
+object exports {
 
   /** Returns a regular expression resolved back-references. */
   @JSExportTopLevel("unref")

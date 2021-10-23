@@ -1,12 +1,11 @@
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
-ThisBuild / scalaVersion := "2.13.6"
+ThisBuild / scalaVersion := "3.0.2"
 ThisBuild / scalacOptions ++= Seq(
   "-encoding",
   "UTF-8",
   "-feature",
-  "-deprecation",
-  "-Wunused"
+  "-deprecation"
 )
 
 // Scalafix config:

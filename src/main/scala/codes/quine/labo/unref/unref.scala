@@ -543,7 +543,7 @@ object unref extends (BRE => RE) {
       val cs = m.getOrElse(i, Seq.empty)
       cs match {
         case Seq(c) => P.Lit(c)
-        case _      => P.Cat(cs.map(P.Lit): _*)
+        case _      => P.Cat(cs.map(P.Lit(_)): _*)
       }
   }
 
@@ -571,7 +571,7 @@ object unref extends (BRE => RE) {
         val cs = m.getOrElse(i, Seq.empty)
         cs match {
           case Seq(c) => (P.Lit(c), cs, m)
-          case _      => (P.Cat(cs.map(P.Lit): _*), cs, m)
+          case _      => (P.Cat(cs.map(P.Lit(_)): _*), cs, m)
         }
     }
 
