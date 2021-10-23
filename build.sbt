@@ -18,6 +18,7 @@ ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.2
 
 lazy val unref = project
   .in(file("."))
+  .enablePlugins(ScalaJSPlugin)
   .settings(
     name := "unref",
     console / initialCommands := """
@@ -25,6 +26,7 @@ lazy val unref = project
       |""".stripMargin,
     Compile / console / scalacOptions -= "-Wunused",
     Test / console / scalacOptions -= "-Wunused",
+    scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) },
     // Settings for test:
     libraryDependencies += "org.scalameta" %% "munit" % "1.0.0-M1" % Test,
     testFrameworks += new TestFramework("munit.Framework")
