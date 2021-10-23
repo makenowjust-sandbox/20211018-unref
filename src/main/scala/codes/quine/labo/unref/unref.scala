@@ -347,7 +347,8 @@ object unref extends (BRE => RE):
         ws.flatMap(w => ws1.map(w ++ _))
       }
     case BRE.Alt(bs @ _*) => bs.flatMap(language(_, ks))
-    case BRE.Star(_)      => throw new IllegalArgumentException
+    case BRE.Star(_)      =>
+      throw new IllegalArgumentException("Impossible to unref when capture has infinite repetition")
     case BRE.Cap(i, b) =>
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       val ws = language(b, ks)
