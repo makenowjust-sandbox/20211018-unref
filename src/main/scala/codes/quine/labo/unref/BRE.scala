@@ -6,7 +6,7 @@ enum BRE:
   case Assert(k: AssertKind)
   case Cat(bs: BRE*)
   case Alt(bs: BRE*)
-  case Star(b: BRE)
+  case Rep(b: BRE, q: Quantifier)
   case PosLA(b: BRE)
   case NegLA(b: BRE)
   case Cap(i: Int, b: BRE)
@@ -20,7 +20,7 @@ object BRE:
     case Assert(_)    => Set.empty
     case Cat(bs @ _*) => bs.iterator.flatMap(caps).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(caps).toSet
-    case Star(b)      => caps(b)
+    case Rep(b, q)    => caps(b)
     case PosLA(b)     => caps(b)
     case NegLA(_)     => Set.empty // Because captures in negative look-ahead are never captured.
     case Cap(i, b)    => Set(i) | caps(b)
@@ -32,7 +32,7 @@ object BRE:
     case Assert(_)    => Set.empty
     case Cat(bs @ _*) => bs.iterator.flatMap(refs).toSet
     case Alt(bs @ _*) => bs.iterator.flatMap(refs).toSet
-    case Star(b)      => refs(b)
+    case Rep(b, _)    => refs(b)
     case PosLA(b)     => refs(b)
     case NegLA(b)     => refs(b)
     case Cap(_, b)    => refs(b)
@@ -40,7 +40,7 @@ object BRE:
 
   /** Parses the given string as BRE. */
   def parse(s: String): Option[BRE] =
-    val reserved = "|*()\\^$"
+    val reserved = "|*+?{}()\\^$"
 
     def alt(pos0: Int, index0: Int): Option[(Int, Int, BRE)] =
       var pos = pos0
@@ -72,7 +72,7 @@ object BRE:
       val bs = Seq.newBuilder[BRE]
 
       while pos < s.length && s(pos) != '|' && s(pos) != ')' do
-        star(pos, index) match
+        rep(pos, index) match
           case Some((pos1, index1, b)) =>
             pos = pos1
             index = index1
@@ -83,10 +83,27 @@ object BRE:
         case Seq(b) => Some((pos, index, b))
         case bs     => Some((pos, index, Cat(bs: _*)))
 
-    def star(pos0: Int, index0: Int): Option[(Int, Int, BRE)] =
-      paren(pos0, index0).map { case (pos, index, b) =>
-        if pos < s.length && s(pos) == '*' then (pos + 1, index, Star(b))
-        else (pos, index, b)
+    def rep(pos0: Int, index0: Int): Option[(Int, Int, BRE)] =
+      paren(pos0, index0).flatMap { case (pos, index, b) =>
+        if pos < s.length && s(pos) == '*' then Some((pos + 1, index, Rep(b, Quantifier.Star)))
+        else if pos < s.length && s(pos) == '+' then Some((pos + 1, index, Rep(b, Quantifier.Plus)))
+        else if pos < s.length && s(pos) == '?' then Some((pos + 1, index, Rep(b, Quantifier.Question)))
+        else if pos < s.length && s(pos) == '{' then
+          val n1 = s.drop(pos + 1).takeWhile(_.isDigit)
+          val pos1 = pos + 1 + n1.length
+          if n1.nonEmpty && pos1 < s.length && s(pos1) == '}' then
+            Some((pos1 + 1, index, Rep(b, Quantifier.Exact(n1.toInt))))
+          else if n1.nonEmpty && pos1 < s.length && s(pos1) == ',' then
+            if pos1 + 1 < s.length && s(pos1 + 1) == '}' then
+              Some((pos1 + 2, index, Rep(b, Quantifier.Unbounded(n1.toInt))))
+            else
+              val n2 = s.drop(pos1 + 1).takeWhile(_.isDigit)
+              val pos2 = pos1 + 1 + n2.length
+              if n2.nonEmpty && pos2 < s.length && s(pos2) == '}' then
+                Some((pos2 + 1, index, Rep(b, Quantifier.Bounded(n1.toInt, n2.toInt))))
+              else None
+          else None
+        else Some((pos, index, b))
       }
 
     def paren(pos0: Int, index0: Int): Option[(Int, Int, BRE)] =

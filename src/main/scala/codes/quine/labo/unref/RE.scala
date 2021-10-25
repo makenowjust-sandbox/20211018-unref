@@ -1,6 +1,6 @@
 package codes.quine.labo.unref
 
-/** RE is an usual regular expression. */
+/** RE is an ordinary regular expression with no back-references. */
 enum RE:
   case Lit(c: Char)
   case Assert(k: AssertKind)
@@ -8,7 +8,7 @@ enum RE:
   case Alt(rs: RE*)
   case PosLA(r: RE)
   case NegLA(r: RE)
-  case Star(r: RE)
+  case Rep(r: RE, q: Quantifier)
 
   override def toString: String = this match
     case Lit(c) => Util.escape(c)
@@ -34,9 +34,17 @@ enum RE:
       ss.mkString("|")
     case PosLA(r) => s"(?=$r)"
     case NegLA(r) => s"(?!$r)"
-    case Star(r) =>
-      r match
-        case r: Cat  => s"(?:$r)*"
-        case r: Alt  => s"(?:$r)*"
-        case r: Star => s"(?:$r)*"
-        case r       => s"$r*"
+    case Rep(r, q) =>
+      val s1 = r match
+        case r: Cat => s"(?:$r)"
+        case r: Alt => s"(?:$r)"
+        case r: Rep => s"(?:$r)"
+        case r      => r.toString
+      val s2 = q match
+        case Quantifier.Star            => "*"
+        case Quantifier.Plus            => "+"
+        case Quantifier.Question        => "?"
+        case Quantifier.Exact(n)        => s"{$n}"
+        case Quantifier.Unbounded(n)    => s"{$n,}"
+        case Quantifier.Bounded(n1, n2) => s"{$n1,$n2}"
+      s1 ++ s2

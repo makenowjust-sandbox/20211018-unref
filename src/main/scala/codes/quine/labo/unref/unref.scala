@@ -1,11 +1,17 @@
 package codes.quine.labo.unref
 
-/** unref is the function to return a regular expression resolved back-references. */
+import scala.annotation.tailrec
+
+/** unref is a function that returns a regular expression that resolves backreferences in the regular expression (BRE).
+  *
+  * The data types and functions for the implementation of unref are also defined in this object.
+  */
 object unref extends (BRE => RE):
 
-  /** C is a character in a capture.
+  /** C represents a character in a capture.
     *
-    * It is not an usual character because captures can be nested and back-references are not resolved here.
+    * This may include nested captures, unresolved back references, and zero-width assertions, in addition to the usual
+    * characters.
     */
   enum C:
     case Lit(c: Char)
@@ -13,6 +19,7 @@ object unref extends (BRE => RE):
     case PosLA0(s: S)
     case PosLA1(t: T)
     case NegLA(s: S)
+    case Scoped(w: W)
     case Cap(i: Int, w: W)
     case Ref(i: Int)
 
@@ -22,6 +29,7 @@ object unref extends (BRE => RE):
       case PosLA0(s) => s"C.PosLA0($s)"
       case PosLA1(t) => s"C.PosLA1($t)"
       case NegLA(s)  => s"C.NegLA($s)"
+      case Scoped(w) => s"C.Scoped($w)"
       case Cap(i, w) => s"C.Cap($i, $w)"
       case Ref(i)    => s"C.Ref($i)"
 
@@ -34,6 +42,7 @@ object unref extends (BRE => RE):
       case PosLA0(_) => Set.empty
       case PosLA1(t) => T.caps(t)
       case NegLA(_)  => Set.empty
+      case Scoped(w) => W.caps(w)
       case Cap(i, w) => Set(i) | W.caps(w)
       case Ref(_)    => Set.empty
 
@@ -44,10 +53,11 @@ object unref extends (BRE => RE):
       case PosLA0(s) => S.refs(s)
       case PosLA1(t) => T.refs(t)
       case NegLA(s)  => S.refs(s)
-      case Cap(_, w) => W.caps(w)
+      case Scoped(w) => W.refs(w)
+      case Cap(_, w) => W.refs(w)
       case Ref(i)    => Set(i)
 
-  /** W is a word of a capture. */
+  /** W represents a word in a capture. */
   final case class W(cs: C*):
 
     /** Concatenates with two words into one. */
@@ -62,6 +72,14 @@ object unref extends (BRE => RE):
 
     /** Returns a set of back-reference index numbers in the given capture word. */
     def refs(w: W): Set[Int] = w.cs.iterator.flatMap(C.refs).toSet
+
+    def repeat(ws: Seq[W], n: Int): Seq[W] =
+      @tailrec
+      def loop(acc: Seq[W], n: Int): Seq[W] =
+        if n == 0 then acc
+        else if n == 1 then acc.flatMap(w1 => ws.map(w2 => w1 ++ w2))
+        else loop(acc.flatMap(w1 => ws.map(w2 => w1 ++ W(C.Scoped(w2)))), n - 1)
+      loop(Seq(W()), n)
 
   /** T is a regular expression having no capture ambiguity. */
   enum T:
@@ -114,7 +132,7 @@ object unref extends (BRE => RE):
     case NegLA(s: S)
     case Cat(ns: N*)
     case Alt(ns: N*)
-    case Star(s: S)
+    case Rep(s: S, q: Q)
     case Ref(i: Int)
 
     /** Concatenates with two regular expressions into sequential one. */
@@ -142,7 +160,7 @@ object unref extends (BRE => RE):
       case NegLA(s)     => s"N.NegLA($s)"
       case Cat(ns @ _*) => ns.mkString("N.Cat", ", ", ")")
       case Alt(ns @ _*) => ns.mkString("N.Alt", ", ", ")")
-      case Star(s)      => s"N.Star($s)"
+      case Rep(s, q)    => s"N.Rep($s, $q)"
       case Ref(i)       => s"N.Ref($i)"
 
   object N:
@@ -155,7 +173,7 @@ object unref extends (BRE => RE):
       case NegLA(s)     => S.refs(s)
       case Cat(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Alt(ns @ _*) => ns.iterator.flatMap(refs).toSet
-      case Star(s)      => S.refs(s)
+      case Rep(s, q)    => S.refs(s)
       case Ref(i)       => Set(i)
 
   /** P is a pure regular expression.
@@ -169,7 +187,7 @@ object unref extends (BRE => RE):
     case NegLA(p: P)
     case Cat(ps: P*)
     case Alt(ps: P*)
-    case Star(p: P)
+    case Rep(p: P, q: Q)
 
     /** Concatenates with two pure regular expressions into one. */
     def ++(that: P): P = (this, that) match
@@ -199,17 +217,24 @@ object unref extends (BRE => RE):
       case NegLA(p)     => N.NegLA(S(Seq.empty, p))
       case Cat(ps @ _*) => N.Cat(ps.map(_.toN): _*)
       case Alt(ps @ _*) => N.Alt(ps.map(_.toN): _*)
-      case Star(p)      => N.Star(S(Seq.empty, p))
+      case Rep(p, q)    => N.Rep(S(Seq.empty, p), q)
 
     /** Converts this into RE. */
     def toRE: RE = this match
-      case Lit(c)       => RE.Lit(c)
-      case Assert(k)    => RE.Assert(k)
-      case PosLA(p)     => RE.PosLA(p.toRE)
-      case NegLA(p)     => RE.NegLA(p.toRE)
-      case Cat(ps @ _*) => RE.Cat(ps.map(_.toRE): _*)
-      case Alt(ps @ _*) => RE.Alt(ps.map(_.toRE): _*)
-      case Star(p)      => RE.Star(p.toRE)
+      case Lit(c)                              => RE.Lit(c)
+      case Assert(k)                           => RE.Assert(k)
+      case PosLA(p)                            => RE.PosLA(p.toRE)
+      case NegLA(p)                            => RE.NegLA(p.toRE)
+      case Cat(ps @ _*)                        => RE.Cat(ps.map(_.toRE).filter(_ != RE.Cat()): _*)
+      case Alt(ps @ _*)                        => RE.Alt(ps.map(_.toRE): _*)
+      case Rep(_, Q(0, Some(0)))               => RE.Cat()
+      case Rep(p, Q(1, Some(1)))               => p.toRE
+      case Rep(p, Q(0, None))                  => RE.Rep(p.toRE, Quantifier.Star)
+      case Rep(p, Q(1, None))                  => RE.Rep(p.toRE, Quantifier.Plus)
+      case Rep(p, Q(0, Some(1)))               => RE.Rep(p.toRE, Quantifier.Question)
+      case Rep(p, Q(n1, Some(n2))) if n1 == n2 => RE.Rep(p.toRE, Quantifier.Exact(n1))
+      case Rep(p, Q(n1, Some(n2)))             => RE.Rep(p.toRE, Quantifier.Bounded(n1, n2))
+      case Rep(p, Q(n, None))                  => RE.Rep(p.toRE, Quantifier.Unbounded(n))
 
     override def toString: String = this match
       case Lit(c)       => s"P.Lit('$c')"
@@ -218,7 +243,10 @@ object unref extends (BRE => RE):
       case NegLA(p)     => s"P.NegLA($p)"
       case Cat(ps @ _*) => ps.mkString("P.Cat", ", ", ")")
       case Alt(ps @ _*) => ps.mkString("P.Alt", ", ", ")")
-      case Star(p)      => s"P.Star($p)"
+      case Rep(p, q)    => s"P.Rep($p, $q)"
+
+  /** Q is a generic quantity specifier for repeats. */
+  final case class Q(min: Int, max: Option[Int])
 
   /** A is an alternative form of regular expression. */
   final case class A(ts: T*):
@@ -309,6 +337,12 @@ object unref extends (BRE => RE):
         case (es, e)                            => es :+ e
       }
 
+    /** Like `alt2`, but the first argument is `Seq[P]`. */
+    private def alt2(ps: Seq[P], es: Seq[E]): Seq[E] = ps match
+      case Seq()  => es
+      case Seq(p) => alt(Seq(NonEmpty(p)), es)
+      case ps     => alt(Seq(NonEmpty(P.Alt(ps: _*))), es)
+
     /** Returns a sequence of regular expressions separating empty and non-empty parts. */
     def separate(p: P): Seq[E] = p match
       case P.Lit(c)    => Seq(NonEmpty(P.Lit(c)))
@@ -319,13 +353,35 @@ object unref extends (BRE => RE):
         ps.foldLeft(Seq(Empty(P.Cat()): E))((es, p) => cat(es, separate(p)))
       case P.Alt(ps @ _*) =>
         ps.foldLeft(Seq.empty[E])((es, p) => alt(es, separate(p)))
-      case P.Star(p) =>
+      case P.Rep(p, q) =>
         val es = separate(p)
-        val ps = es.collect { case NonEmpty(p1) => P.Star(p) ++ p1 }
-        ps match
-          case Seq()  => Seq(Empty(P.Cat()))
-          case Seq(p) => Seq(NonEmpty(p), Empty(P.Cat()))
-          case ps     => Seq(NonEmpty(P.Alt(ps: _*)), Empty(P.Cat()))
+        q match
+          case Q(0, Some(0)) => Seq(Empty(P.Cat()))
+          case Q(0, Some(n)) =>
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, Some(n - 1))) ++ p1 }
+            alt2(ps, Seq(NonEmpty(P.Cat())))
+          case Q(n1, Some(n2)) if n1 == n2 =>
+            es.map {
+              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n2 - 1))) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n2 - 1))) ++ p1)
+            }
+          case Q(n1, Some(n2)) =>
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n1, Some(n2 - 1))) ++ p1 }
+            val es1 = es.map {
+              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n1 - 1))) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n1 - 1))) ++ p1)
+            }
+            alt2(ps, es1)
+          case Q(0, None) =>
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, None)) ++ p1 }
+            alt2(ps, Seq(NonEmpty(P.Cat())))
+          case Q(n, None) =>
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n, None)) ++ p1 }
+            val es1 = es.map {
+              case Empty(p1)    => Empty(P.Rep(p, Q(n - 1, Some(n - 1))) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n - 1, Some(n - 1))) ++ p1)
+            }
+            alt2(ps, es1)
 
   /** Returns a language (a word set) of the given BRE on the given continuations.
     *
@@ -347,8 +403,13 @@ object unref extends (BRE => RE):
         ws.flatMap(w => ws1.map(w ++ _))
       }
     case BRE.Alt(bs @ _*) => bs.flatMap(language(_, ks))
-    case BRE.Star(_)      =>
-      throw new IllegalArgumentException("Impossible to unref when capture has infinite repetition")
+    case BRE.Rep(b, q) =>
+      val ws = language(b, ks)
+      (q.min, q.max) match
+        case (n1, Some(n2)) =>
+          (n2 to n1 by -1).iterator.flatMap(n => W.repeat(ws, n)).toSeq
+        case (_, None) =>
+          throw new IllegalArgumentException("Impossible to unref when capture has infinite repetition")
     case BRE.Cap(i, b) =>
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       val ws = language(b, ks)
@@ -383,15 +444,39 @@ object unref extends (BRE => RE):
       val ss = bs.map(convert(_, ks))
       if ss.forall(_.isPure) then S(Seq.empty, P.Alt(ss.map(_.p): _*))
       else S(Seq(ss.foldLeft(A())((a, s) => a | s.toA)), P.Cat())
-    case BRE.Star(b) =>
+    case BRE.Rep(b, q) =>
+      val min = q.min
+      val max = q.max
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       val bcaps = BRE.caps(b)
       val s = convert(b, ks)
+
       if (krefs & bcaps).nonEmpty then
-        val a = A(s.toA.ts.map(t => T.NoCap(N.Star(s)) ++ T.NonEmpty(t)) :+ T.Cat(): _*)
-        S(Seq(a), P.Cat())
-      else if (s.isPure) S(Seq.empty, P.Star(s.p))
-      else S(Seq(A(T.NoCap(N.Star(s)))), P.Cat())
+        // To simplify the repeating part of the resulting regular expression, we will perform
+        // the transformation without passing a continuation. This is not a problem since the
+        // capturing of the repeating part is never referenced outside.
+        val s0 = convert(b, Seq.empty)
+        val a = s.toA
+        val ts = (min, max) match
+          case (0, Some(0)) =>
+            Seq.empty[T]
+          case (0, Some(n)) =>
+            a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, Some(n - 1)))) ++ T.NonEmpty(t)) :+ T.Cat()
+          case (n1, Some(n2)) if n1 == n2 =>
+            a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n2 - 1)))) ++ t)
+          case (n1, Some(n2)) =>
+            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1, Some(n2 - 1)))) ++ T.NonEmpty(t))
+            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n1 - 1)))) ++ t)
+            ts1 ++ ts2
+          case (0, None) =>
+            a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, None))) ++ T.NonEmpty(t)) :+ T.Cat()
+          case (n, None) =>
+            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n, None))) ++ T.NonEmpty(t))
+            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n - 1, Some(n - 1)))) ++ t)
+            ts1 ++ ts2
+        S(Seq(A(ts: _*)), P.Cat())
+      else if s.isPure then S(Seq.empty, P.Rep(s.p, Q(min, max)))
+      else S(Seq(A(T.NoCap(N.Rep(s, Q(min, max))))), P.Cat())
     case BRE.Cap(i, b) =>
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       if krefs.contains(i) then S(Seq(A(language(b, ks).map(T.Cap(i, _)): _*)), P.Cat())
@@ -474,7 +559,7 @@ object unref extends (BRE => RE):
     case N.NegLA(s)     => P.NegLA(exec(s, m))
     case N.Cat(ns @ _*) => P.Cat(ns.map(exec(_, m)): _*)
     case N.Alt(ns @ _*) => P.Alt(ns.map(exec(_, m)): _*)
-    case N.Star(s)      => P.Star(exec(s, m))
+    case N.Rep(s, q)    => P.Rep(exec(s, m), q)
     case N.Ref(i) =>
       val cs = m.getOrElse(i, Seq.empty)
       cs match
@@ -497,6 +582,9 @@ object unref extends (BRE => RE):
       val (p, m1) = exec(t, m)
       (P.PosLA(p), Seq.empty, m1)
     case C.NegLA(s) => (P.NegLA(exec(s, m)), Seq.empty, m)
+    case C.Scoped(w) =>
+      val (p, cs, _) = exec(w, m)
+      (p, cs, m)
     case C.Cap(i, w) =>
       val (p, cs, m1) = exec(w, m)
       (p, cs, m1 ++ Map(i -> cs))
