@@ -8,7 +8,7 @@ enum RE:
   case Alt(rs: RE*)
   case PosLA(r: RE)
   case NegLA(r: RE)
-  case Rep(r: RE, q: Quantifier)
+  case Rep(r: RE, q: Quantifier, greedy: Boolean)
 
   override def toString: String = this match
     case Lit(c) => Util.escape(c)
@@ -34,7 +34,7 @@ enum RE:
       ss.mkString("|")
     case PosLA(r) => s"(?=$r)"
     case NegLA(r) => s"(?!$r)"
-    case Rep(r, q) =>
+    case Rep(r, q, greedy) =>
       val s1 = r match
         case r: Cat => s"(?:$r)"
         case r: Alt => s"(?:$r)"
@@ -47,4 +47,5 @@ enum RE:
         case Quantifier.Exact(n)        => s"{$n}"
         case Quantifier.Unbounded(n)    => s"{$n,}"
         case Quantifier.Bounded(n1, n2) => s"{$n1,$n2}"
-      s1 ++ s2
+      val s3 = if greedy then "?" else ""
+      s1 ++ s2 ++ s3

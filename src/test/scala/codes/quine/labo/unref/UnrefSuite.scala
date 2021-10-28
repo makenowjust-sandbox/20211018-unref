@@ -38,13 +38,19 @@ class UnrefSuite extends munit.FunSuite:
     assertUnref("""(x|(?=x))*\1""", "(?:x|(?=x))*xx|")
     assertUnref("""(x|(?=x))*\1""", "(?:x|(?=x))*xx|")
     assertUnref("""(x|)(\1)*\2""", "xx*xx|x|")
+    assertUnref("""(x|y)*?\1""", "|(?:x|y)*xx|(?:x|y)*yy")
     assertUnref("""(x|y)+\1""", "(?:x|y)+xx|(?:x|y)+yy|xx|yy")
-    assertUnref("""(x|y|)+\1""", "(?:x|y)+xx|(?:x|y)+yy|xx|yy|")
+    assertUnref("""(x|y|)+\1""", "(?:x|y|)+xx|(?:x|y|)+yy|xx|yy|")
+    assertUnref("""(x|y)+?\1""", "xx|yy|(?:x|y)*xx|(?:x|y)*yy")
     assertUnref("""(x|y)?\1""", "xx|yy|")
+    assertUnref("""(x|y)??\1""", "|xx|yy")
     assertUnref("""(x|y){2}\1""", "(?:x|y)xx|(?:x|y)yy")
+    assertUnref("""(x|y){2}?\1""", "(?:x|y)xx|(?:x|y)yy")
     assertUnref("""(x|y){1,2}\1""", "(?:x|y)xx|(?:x|y)yy|xx|yy")
+    assertUnref("""(x|y){1,2}?\1""", "xx|yy|(?:x|y)xx|(?:x|y)yy")
     assertUnref("""(x|y){2,}\1""", "(?:x|y){2,}xx|(?:x|y){2,}yy|(?:x|y)xx|(?:x|y)yy")
     assertUnref("""(x|y|){2,}\1""", "(?:x|y|){2,}xx|(?:x|y|){2,}yy|(?:x|y|)xx|(?:x|y|)yy|(?:x|y|)")
+    assertUnref("""(x|y){2,}?\1""", "(?:x|y)xx|(?:x|y)yy|(?:x|y){2,}xx|(?:x|y){2,}yy")
     assertUnref(
       """((?:(?:(x)|y)\2){2})*\1""",
       "(?:(?:xx|y){2})*xxxxxxxx|(?:(?:xx|y){2})*xxyxxy|(?:(?:xx|y){2})*yxxyxx|(?:(?:xx|y){2})*yyyy|"

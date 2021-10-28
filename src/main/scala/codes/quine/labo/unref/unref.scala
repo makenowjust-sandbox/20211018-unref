@@ -132,7 +132,7 @@ object unref extends (BRE => RE):
     case NegLA(s: S)
     case Cat(ns: N*)
     case Alt(ns: N*)
-    case Rep(s: S, q: Q)
+    case Rep(s: S, q: Q, greedy: Boolean)
     case Ref(i: Int)
 
     /** Concatenates with two regular expressions into sequential one. */
@@ -154,14 +154,14 @@ object unref extends (BRE => RE):
       case (n1, n2)                       => Alt(n1, n2)
 
     override def toString: String = this match
-      case Lit(c)       => s"N.Lit('$c')"
-      case Assert(k)    => s"N.Assert($k)"
-      case PosLA(s)     => s"N.PosLA($s)"
-      case NegLA(s)     => s"N.NegLA($s)"
-      case Cat(ns @ _*) => ns.mkString("N.Cat", ", ", ")")
-      case Alt(ns @ _*) => ns.mkString("N.Alt", ", ", ")")
-      case Rep(s, q)    => s"N.Rep($s, $q)"
-      case Ref(i)       => s"N.Ref($i)"
+      case Lit(c)            => s"N.Lit('$c')"
+      case Assert(k)         => s"N.Assert($k)"
+      case PosLA(s)          => s"N.PosLA($s)"
+      case NegLA(s)          => s"N.NegLA($s)"
+      case Cat(ns @ _*)      => ns.mkString("N.Cat", ", ", ")")
+      case Alt(ns @ _*)      => ns.mkString("N.Alt", ", ", ")")
+      case Rep(s, q, greedy) => s"N.Rep($s, $q, $greedy)"
+      case Ref(i)            => s"N.Ref($i)"
 
   object N:
 
@@ -173,7 +173,7 @@ object unref extends (BRE => RE):
       case NegLA(s)     => S.refs(s)
       case Cat(ns @ _*) => ns.iterator.flatMap(refs).toSet
       case Alt(ns @ _*) => ns.iterator.flatMap(refs).toSet
-      case Rep(s, q)    => S.refs(s)
+      case Rep(s, _, _) => S.refs(s)
       case Ref(i)       => Set(i)
 
   /** P is a pure regular expression.
@@ -187,7 +187,7 @@ object unref extends (BRE => RE):
     case NegLA(p: P)
     case Cat(ps: P*)
     case Alt(ps: P*)
-    case Rep(p: P, q: Q)
+    case Rep(p: P, q: Q, greedy: Boolean)
 
     /** Concatenates with two pure regular expressions into one. */
     def ++(that: P): P = (this, that) match
@@ -211,39 +211,39 @@ object unref extends (BRE => RE):
 
     /** Converts this into N. */
     def toN: N = this match
-      case Lit(c)       => N.Lit(c)
-      case Assert(k)    => N.Assert(k)
-      case PosLA(p)     => N.PosLA(S(Seq.empty, p))
-      case NegLA(p)     => N.NegLA(S(Seq.empty, p))
-      case Cat(ps @ _*) => N.Cat(ps.map(_.toN): _*)
-      case Alt(ps @ _*) => N.Alt(ps.map(_.toN): _*)
-      case Rep(p, q)    => N.Rep(S(Seq.empty, p), q)
+      case Lit(c)            => N.Lit(c)
+      case Assert(k)         => N.Assert(k)
+      case PosLA(p)          => N.PosLA(S(Seq.empty, p))
+      case NegLA(p)          => N.NegLA(S(Seq.empty, p))
+      case Cat(ps @ _*)      => N.Cat(ps.map(_.toN): _*)
+      case Alt(ps @ _*)      => N.Alt(ps.map(_.toN): _*)
+      case Rep(p, q, greedy) => N.Rep(S(Seq.empty, p), q, greedy)
 
     /** Converts this into RE. */
     def toRE: RE = this match
-      case Lit(c)                              => RE.Lit(c)
-      case Assert(k)                           => RE.Assert(k)
-      case PosLA(p)                            => RE.PosLA(p.toRE)
-      case NegLA(p)                            => RE.NegLA(p.toRE)
-      case Cat(ps @ _*)                        => RE.Cat(ps.map(_.toRE).filter(_ != RE.Cat()): _*)
-      case Alt(ps @ _*)                        => RE.Alt(ps.map(_.toRE): _*)
-      case Rep(_, Q(0, Some(0)))               => RE.Cat()
-      case Rep(p, Q(1, Some(1)))               => p.toRE
-      case Rep(p, Q(0, None))                  => RE.Rep(p.toRE, Quantifier.Star)
-      case Rep(p, Q(1, None))                  => RE.Rep(p.toRE, Quantifier.Plus)
-      case Rep(p, Q(0, Some(1)))               => RE.Rep(p.toRE, Quantifier.Question)
-      case Rep(p, Q(n1, Some(n2))) if n1 == n2 => RE.Rep(p.toRE, Quantifier.Exact(n1))
-      case Rep(p, Q(n1, Some(n2)))             => RE.Rep(p.toRE, Quantifier.Bounded(n1, n2))
-      case Rep(p, Q(n, None))                  => RE.Rep(p.toRE, Quantifier.Unbounded(n))
+      case Lit(c)                                      => RE.Lit(c)
+      case Assert(k)                                   => RE.Assert(k)
+      case PosLA(p)                                    => RE.PosLA(p.toRE)
+      case NegLA(p)                                    => RE.NegLA(p.toRE)
+      case Cat(ps @ _*)                                => RE.Cat(ps.map(_.toRE).filter(_ != RE.Cat()): _*)
+      case Alt(ps @ _*)                                => RE.Alt(ps.map(_.toRE): _*)
+      case Rep(_, Q(0, Some(0)), _)                    => RE.Cat()
+      case Rep(p, Q(1, Some(1)), _)                    => p.toRE
+      case Rep(p, Q(0, None), greedy)                  => RE.Rep(p.toRE, Quantifier.Star, greedy)
+      case Rep(p, Q(1, None), greedy)                  => RE.Rep(p.toRE, Quantifier.Plus, greedy)
+      case Rep(p, Q(0, Some(1)), greedy)               => RE.Rep(p.toRE, Quantifier.Question, greedy)
+      case Rep(p, Q(n1, Some(n2)), greedy) if n1 == n2 => RE.Rep(p.toRE, Quantifier.Exact(n1), greedy)
+      case Rep(p, Q(n1, Some(n2)), greedy)             => RE.Rep(p.toRE, Quantifier.Bounded(n1, n2), greedy)
+      case Rep(p, Q(n, None), greedy)                  => RE.Rep(p.toRE, Quantifier.Unbounded(n), greedy)
 
     override def toString: String = this match
-      case Lit(c)       => s"P.Lit('$c')"
-      case Assert(k)    => s"P.Assert($k)"
-      case PosLA(p)     => s"P.PosLA($p)"
-      case NegLA(p)     => s"P.NegLA($p)"
-      case Cat(ps @ _*) => ps.mkString("P.Cat", ", ", ")")
-      case Alt(ps @ _*) => ps.mkString("P.Alt", ", ", ")")
-      case Rep(p, q)    => s"P.Rep($p, $q)"
+      case Lit(c)            => s"P.Lit('$c')"
+      case Assert(k)         => s"P.Assert($k)"
+      case PosLA(p)          => s"P.PosLA($p)"
+      case NegLA(p)          => s"P.NegLA($p)"
+      case Cat(ps @ _*)      => ps.mkString("P.Cat", ", ", ")")
+      case Alt(ps @ _*)      => ps.mkString("P.Alt", ", ", ")")
+      case Rep(p, q, greedy) => s"P.Rep($p, $q, $greedy)"
 
   /** Q is a generic quantity specifier for repeats. */
   final case class Q(min: Int, max: Option[Int])
@@ -338,10 +338,10 @@ object unref extends (BRE => RE):
       }
 
     /** Like `alt2`, but the first argument is `Seq[P]`. */
-    private def alt2(ps: Seq[P], es: Seq[E]): Seq[E] = ps match
+    private def alt2(ps: Seq[P], es: Seq[E], greedy: Boolean): Seq[E] = ps match
       case Seq()  => es
-      case Seq(p) => alt(Seq(NonEmpty(p)), es)
-      case ps     => alt(Seq(NonEmpty(P.Alt(ps: _*))), es)
+      case Seq(p) => if greedy then alt(Seq(NonEmpty(p)), es) else alt(es, Seq(NonEmpty(p)))
+      case ps     => if greedy then alt(Seq(NonEmpty(P.Alt(ps: _*))), es) else alt(es, Seq(NonEmpty(P.Alt(ps: _*))))
 
     /** Returns a sequence of regular expressions separating empty and non-empty parts. */
     def separate(p: P): Seq[E] = p match
@@ -353,35 +353,35 @@ object unref extends (BRE => RE):
         ps.foldLeft(Seq(Empty(P.Cat()): E))((es, p) => cat(es, separate(p)))
       case P.Alt(ps @ _*) =>
         ps.foldLeft(Seq.empty[E])((es, p) => alt(es, separate(p)))
-      case P.Rep(p, q) =>
+      case P.Rep(p, q, greedy) =>
         val es = separate(p)
         q match
           case Q(0, Some(0)) => Seq(Empty(P.Cat()))
           case Q(0, Some(n)) =>
-            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, Some(n - 1))) ++ p1 }
-            alt2(ps, Seq(NonEmpty(P.Cat())))
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, Some(n - 1)), greedy) ++ p1 }
+            alt2(ps, Seq(NonEmpty(P.Cat())), greedy)
           case Q(n1, Some(n2)) if n1 == n2 =>
             es.map {
-              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n2 - 1))) ++ p1)
-              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n2 - 1))) ++ p1)
+              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n2 - 1)), greedy) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n2 - 1)), greedy) ++ p1)
             }
           case Q(n1, Some(n2)) =>
-            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n1, Some(n2 - 1))) ++ p1 }
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n1, Some(n2 - 1)), greedy) ++ p1 }
             val es1 = es.map {
-              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n1 - 1))) ++ p1)
-              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n1 - 1))) ++ p1)
+              case Empty(p1)    => Empty(P.Rep(p, Q(n1 - 1, Some(n1 - 1)), greedy) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n1 - 1, Some(n1 - 1)), greedy) ++ p1)
             }
-            alt2(ps, es1)
+            alt2(ps, es1, greedy)
           case Q(0, None) =>
-            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, None)) ++ p1 }
-            alt2(ps, Seq(NonEmpty(P.Cat())))
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(0, None), greedy) ++ p1 }
+            alt2(ps, Seq(NonEmpty(P.Cat())), greedy)
           case Q(n, None) =>
-            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n, None)) ++ p1 }
+            val ps = es.collect { case NonEmpty(p1) => P.Rep(p, Q(n, None), greedy) ++ p1 }
             val es1 = es.map {
-              case Empty(p1)    => Empty(P.Rep(p, Q(n - 1, Some(n - 1))) ++ p1)
-              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n - 1, Some(n - 1))) ++ p1)
+              case Empty(p1)    => Empty(P.Rep(p, Q(n - 1, Some(n - 1)), greedy) ++ p1)
+              case NonEmpty(p1) => NonEmpty(P.Rep(p, Q(n - 1, Some(n - 1)), greedy) ++ p1)
             }
-            alt2(ps, es1)
+            alt2(ps, es1, greedy)
 
   /** Returns a language (a word set) of the given BRE on the given continuations.
     *
@@ -403,11 +403,12 @@ object unref extends (BRE => RE):
         ws.flatMap(w => ws1.map(w ++ _))
       }
     case BRE.Alt(bs @ _*) => bs.flatMap(language(_, ks))
-    case BRE.Rep(b, q) =>
+    case BRE.Rep(b, q, greedy) =>
       val ws = language(b, ks)
       (q.min, q.max) match
         case (n1, Some(n2)) =>
-          (n2 to n1 by -1).iterator.flatMap(n => W.repeat(ws, n)).toSeq
+          val range = if greedy then n2 to n1 by -1 else n1 to n2
+          range.iterator.flatMap(n => W.repeat(ws, n)).toSeq
         case (_, None) =>
           throw new IllegalArgumentException("Impossible to unref when capture has infinite repetition")
     case BRE.Cap(i, b) =>
@@ -444,7 +445,7 @@ object unref extends (BRE => RE):
       val ss = bs.map(convert(_, ks))
       if ss.forall(_.isPure) then S(Seq.empty, P.Alt(ss.map(_.p): _*))
       else S(Seq(ss.foldLeft(A())((a, s) => a | s.toA)), P.Cat())
-    case BRE.Rep(b, q) =>
+    case BRE.Rep(b, q, greedy) =>
       val min = q.min
       val max = q.max
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
@@ -456,27 +457,30 @@ object unref extends (BRE => RE):
         // the transformation without passing a continuation. This is not a problem since the
         // capturing of the repeating part is never referenced outside.
         val s0 = convert(b, Seq.empty)
+
         val a = s.toA
+        def alt2(ts1: Seq[T], ts2: Seq[T], greedy: Boolean): Seq[T] =
+          if greedy then ts1 ++ ts2 else ts2 ++ ts1
         val ts = (min, max) match
           case (0, Some(0)) =>
             Seq.empty[T]
           case (0, Some(n)) =>
-            a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, Some(n - 1)))) ++ T.NonEmpty(t)) :+ T.Cat()
+            alt2(a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, Some(n - 1)), greedy)) ++ T.NonEmpty(t)), Seq(T.Cat()), greedy)
           case (n1, Some(n2)) if n1 == n2 =>
-            a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n2 - 1)))) ++ t)
+            a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n2 - 1)), greedy)) ++ t)
           case (n1, Some(n2)) =>
-            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1, Some(n2 - 1)))) ++ T.NonEmpty(t))
-            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n1 - 1)))) ++ t)
-            ts1 ++ ts2
+            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1, Some(n2 - 1)), greedy)) ++ T.NonEmpty(t))
+            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n1 - 1, Some(n1 - 1)), greedy)) ++ t)
+            alt2(ts1, ts2, greedy)
           case (0, None) =>
-            a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, None))) ++ T.NonEmpty(t)) :+ T.Cat()
+            alt2(a.ts.map(t => T.NoCap(N.Rep(s0, Q(0, None), greedy)) ++ T.NonEmpty(t)), Seq(T.Cat()), greedy)
           case (n, None) =>
-            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n, None))) ++ T.NonEmpty(t))
-            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n - 1, Some(n - 1)))) ++ t)
-            ts1 ++ ts2
+            val ts1 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n, None), greedy)) ++ T.NonEmpty(t))
+            val ts2 = a.ts.map(t => T.NoCap(N.Rep(s0, Q(n - 1, Some(n - 1)), greedy)) ++ t)
+            alt2(ts1, ts2, greedy)
         S(Seq(A(ts: _*)), P.Cat())
-      else if s.isPure then S(Seq.empty, P.Rep(s.p, Q(min, max)))
-      else S(Seq(A(T.NoCap(N.Rep(s, Q(min, max))))), P.Cat())
+      else if s.isPure then S(Seq.empty, P.Rep(s.p, Q(min, max), greedy))
+      else S(Seq(A(T.NoCap(N.Rep(s, Q(min, max), greedy)))), P.Cat())
     case BRE.Cap(i, b) =>
       val krefs = ks.iterator.flatMap(BRE.refs).toSet
       if krefs.contains(i) then S(Seq(A(language(b, ks).map(T.Cap(i, _)): _*)), P.Cat())
@@ -553,13 +557,13 @@ object unref extends (BRE => RE):
 
   /** Returns a regular expression replaced back-references from the given N. */
   def exec(n: N, m: Map[Int, Seq[Char]]): P = n match
-    case N.Lit(c)       => P.Lit(c)
-    case N.Assert(k)    => P.Assert(k)
-    case N.PosLA(s)     => P.PosLA(exec(s, m))
-    case N.NegLA(s)     => P.NegLA(exec(s, m))
-    case N.Cat(ns @ _*) => P.Cat(ns.map(exec(_, m)): _*)
-    case N.Alt(ns @ _*) => P.Alt(ns.map(exec(_, m)): _*)
-    case N.Rep(s, q)    => P.Rep(exec(s, m), q)
+    case N.Lit(c)            => P.Lit(c)
+    case N.Assert(k)         => P.Assert(k)
+    case N.PosLA(s)          => P.PosLA(exec(s, m))
+    case N.NegLA(s)          => P.NegLA(exec(s, m))
+    case N.Cat(ns @ _*)      => P.Cat(ns.map(exec(_, m)): _*)
+    case N.Alt(ns @ _*)      => P.Alt(ns.map(exec(_, m)): _*)
+    case N.Rep(s, q, greedy) => P.Rep(exec(s, m), q, greedy)
     case N.Ref(i) =>
       val cs = m.getOrElse(i, Seq.empty)
       cs match
